@@ -18,19 +18,51 @@ def init_db():
             name TEXT NOT NULL,
             email TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
+            role TEXT NOT NULL DEFAULT 'job_seeker',
             created_at TEXT DEFAULT CURRENT_TIMESTAMP
         )
     """)
     c.execute("""
+        CREATE TABLE IF NOT EXISTS companies (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            recruiter_id INTEGER NOT NULL,
+            company_name TEXT NOT NULL,
+            industry TEXT,
+            website TEXT,
+            description TEXT,
+            location TEXT,
+            logo_path TEXT,
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (recruiter_id) REFERENCES users (id)
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS job_postings (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            company_id INTEGER NOT NULL,
+            title TEXT NOT NULL,
+            description TEXT,
+            requirements TEXT,
+            location TEXT,
+            salary_range TEXT,
+            job_type TEXT,
+            status TEXT DEFAULT 'active',
+            created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (company_id) REFERENCES companies (id)
+        )
+    """)
+    c.execute(
         CREATE TABLE IF NOT EXISTS job_applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            user_id INTEGER,
-            company TEXT NOT NULL,
-            position TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            job_posting_id INTEGER NOT NULL,
             status TEXT DEFAULT 'Applied',
             applied_date TEXT DEFAULT CURRENT_TIMESTAMP,
+            resume_path TEXT,
+            cover_letter TEXT,
             notes TEXT,
-            FOREIGN KEY (user_id) REFERENCES users (id)
+            FOREIGN KEY (user_id) REFERENCES users (id),
+            FOREIGN KEY (job_posting_id) REFERENCES job_postings (id)
         )
     """)
     conn.commit()
@@ -44,13 +76,13 @@ def verify_password(password, hashed):
     return hash_password(password) == hashed
 
 # ------------------ AUTH FUNCTIONS ------------------
-def create_user(name, email, password):
+def create_user(name, email, password, role='job_seeker'):
     conn = get_connection()
     c = conn.cursor()
     try:
         c.execute(
-            "INSERT INTO users (name, email, password) VALUES (?, ?, ?)",
-            (name, email, hash_password(password))
+            "INSERT INTO users (name, email, password, role) VALUES (?, ?, ?, ?)",
+            (name, email, hash_password(password), role)
         )
         conn.commit()
         return True
@@ -87,6 +119,42 @@ def get_user_applications(user_id):
     apps = c.fetchall()
     conn.close()
     return apps
+
+# ------------------ COMPANY FUNCTIONS ------------------
+def get_company_by_recruiter(recruiter_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM companies WHERE recruiter_id = ?", (recruiter_id,))
+    company = c.fetchone()
+    conn.close()
+    return company
+
+def save_company_profile(recruiter_id, company_name, industry, website, description, location):
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        # Check if company profile already exists
+        existing = get_company_by_recruiter(recruiter_id)
+        if existing:
+            # Update existing
+            c.execute("""
+                UPDATE companies 
+                SET company_name=?, industry=?, website=?, description=?, location=? 
+                WHERE recruiter_id=?
+            """, (company_name, industry, website, description, location, recruiter_id))
+        else:
+            # Create new
+            c.execute("""
+                INSERT INTO companies (recruiter_id, company_name, industry, website, description, location) 
+                VALUES (?, ?, ?, ?, ?, ?)
+            """, (recruiter_id, company_name, industry, website, description, location))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error saving company profile: {e}")
+        return False
+    finally:
+        conn.close()
 
 # ------------------ INIT DB (RUN ONCE) ------------------
 if "db_initialized" not in st.session_state:
@@ -168,7 +236,14 @@ else:
         except:
             st.sidebar.markdown("🚀 **Hire Hunt**  \n*AI-Powered Job Tracking*")
     
-    menu = st.sidebar.selectbox("Menu", ["🏠 Dashboard", "➕ Add Application", "📊 My Applications", "👤 Profile"])
+    # Dynamic menu based on user role
+    user = st.session_state.user
+    user_role = user[4] if len(user) > 4 else 'job_seeker'  # role is at index 4
+    
+    if user_role == 'recruiter':
+        menu = st.sidebar.selectbox("Menu", ["🏠 Dashboard", "🏢 Company Profile", "📋 Job Postings", "👥 Applications", "👤 Profile"])
+    else:  # job_seeker
+        menu = st.sidebar.selectbox("Menu", ["🏠 Dashboard", "➕ Add Application", "📊 My Applications", "🔍 Browse Jobs", "👤 Profile"])
 
 # ------------------ SIGNUP ------------------
 if menu == "✨ Signup":
@@ -181,10 +256,12 @@ if menu == "✨ Signup":
         with col2:
             email = st.text_input("📧 Email", placeholder="your.email@example.com")
         
+        role = st.radio("🎯 I am a:", ["👨‍💼 Job Seeker", "🏢 Recruiter"], horizontal=True)
         password = st.text_input("🔒 Password", type="password", placeholder="Create a strong password")
         confirm_password = st.text_input("🔒 Confirm Password", type="password", placeholder="Confirm your password")
         
         if st.form_submit_button("🎉 Create Account", use_container_width=True):
+            role_value = "job_seeker" if role == "👨‍💼 Job Seeker" else "recruiter"
             if not all([name, email, password, confirm_password]):
                 st.error("❌ All fields are required!")
             elif password != confirm_password:
@@ -192,7 +269,7 @@ if menu == "✨ Signup":
             elif len(password) < 6:
                 st.error("❌ Password must be at least 6 characters!")
             else:
-                if create_user(name, email, password):
+                if create_user(name, email, password, role_value):
                     st.success("🎉 Account created successfully! Please login.")
                     st.balloons()
                 else:
@@ -327,6 +404,63 @@ elif menu == "📊 My Applications" and st.session_state.logged_in:
                         st.rerun()
     else:
         st.info("📭 No applications yet. Add your first job application!")
+
+# ------------------ COMPANY PROFILE (RECRUITER) ------------------
+elif menu == "🏢 Company Profile" and st.session_state.logged_in:
+    user = st.session_state.user
+    if user[4] != 'recruiter':
+        st.error("❌ Access denied. This section is for recruiters only.")
+    else:
+        st.subheader("🏢 Company Profile Management")
+        
+        # Check if company profile exists
+        company = get_company_by_recruiter(user[0])
+        
+        if company:
+            st.success(f"✅ Company profile found: **{company[2]}**")
+            
+            # Display current company info
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write(f"**Industry:** {company[3] or 'Not specified'}")
+                st.write(f"**Website:** {company[4] or 'Not specified'}")
+            with col2:
+                st.write(f"**Location:** {company[6] or 'Not specified'}")
+            
+            if company[5]:  # description
+                st.write(f"**Description:** {company[5]}")
+            
+            if st.button("✏️ Edit Company Profile"):
+                st.session_state.edit_company = True
+        else:
+            st.info("📝 You haven't set up your company profile yet.")
+            st.session_state.edit_company = True
+        
+        # Edit/Create company profile
+        if st.session_state.get('edit_company', False):
+            st.subheader("🏢 Setup/Edit Company Profile")
+            
+            with st.form("company_form"):
+                company_name = st.text_input("🏢 Company Name", value=company[2] if company else "")
+                industry = st.text_input("🏭 Industry", value=company[3] if company else "")
+                website = st.text_input("🌐 Website", value=company[4] if company else "", placeholder="https://www.company.com")
+                location = st.text_input("📍 Location", value=company[6] if company else "")
+                description = st.text_area("📝 Description", value=company[5] if company else "", height=100)
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    if st.form_submit_button("💾 Save Company Profile", use_container_width=True):
+                        if save_company_profile(user[0], company_name, industry, website, description, location):
+                            st.success("✅ Company profile saved successfully!")
+                            st.session_state.edit_company = False
+                            st.rerun()
+                        else:
+                            st.error("❌ Failed to save company profile.")
+                
+                with col2:
+                    if st.form_submit_button("❌ Cancel", use_container_width=True):
+                        st.session_state.edit_company = False
+                        st.rerun()
 
 # ------------------ PROFILE ------------------
 elif menu == "👤 Profile" and st.session_state.logged_in:
