@@ -1,0 +1,13 @@
+include README.md
+include requirements.txt
+include runtime.txt
+include Procfile
+include setup.py
+include Dockerfile
+include .streamlit/config.toml
+include style.css
+include logo.png
+recursive-include .streamlit *
+global-exclude *.pyc
+global-exclude __pycache__
+global-exclude .git*

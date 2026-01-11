@@ -1,0 +1,248 @@
+import streamlit as st
+import sqlite3
+import hashlib
+import os
+from datetime import datetime
+
+# ================== CONFIG ==================
+DB_NAME = "job_ai.db"
+RESUME_DIR = "resumes"
+os.makedirs(RESUME_DIR, exist_ok=True)
+
+# ================== DB ==================
+def get_connection():
+    return sqlite3.connect(DB_NAME, check_same_thread=False)
+
+def init_db():
+    conn = get_connection()
+    c = conn.cursor()
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS users (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT,
+        email TEXT UNIQUE,
+        password TEXT,
+        role TEXT
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS jobs (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        employer_id INTEGER,
+        company TEXT,
+        title TEXT,
+        description TEXT,
+        location TEXT,
+        salary TEXT,
+        tags TEXT
+    )
+    """)
+
+    c.execute("""
+    CREATE TABLE IF NOT EXISTS applications (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        job_id INTEGER,
+        seeker_id INTEGER,
+        resume_path TEXT,
+        status TEXT,
+        applied_at TEXT
+    )
+    """)
+
+    conn.commit()
+    conn.close()
+
+# ================== SECURITY ==================
+def hash_password(password):
+    return hashlib.sha256(password.encode()).hexdigest()
+
+# ================== AUTH ==================
+def create_user(name, email, password, role):
+    try:
+        conn = get_connection()
+        c = conn.cursor()
+        c.execute(
+            "INSERT INTO users VALUES (NULL, ?, ?, ?, ?)",
+            (name, email, hash_password(password), role)
+        )
+        conn.commit()
+        return True
+    except:
+        return False
+    finally:
+        conn.close()
+
+def login_user(email, password):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "SELECT * FROM users WHERE email=? AND password=?",
+        (email, hash_password(password))
+    )
+    user = c.fetchone()
+    conn.close()
+    return user
+
+# ================== JOBS ==================
+def add_job(emp_id, company, title, desc, loc, salary, tags):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO jobs VALUES (NULL, ?, ?, ?, ?, ?, ?, ?)",
+        (emp_id, company, title, desc, loc, salary, tags)
+    )
+    conn.commit()
+    conn.close()
+
+def get_jobs():
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("SELECT * FROM jobs ORDER BY id DESC")
+    jobs = c.fetchall()
+    conn.close()
+    return jobs
+
+# ================== APPLICATION ==================
+def apply_job(job_id, seeker_id, resume):
+    path = f"{RESUME_DIR}/{seeker_id}_{job_id}_{resume.name}"
+    with open(path, "wb") as f:
+        f.write(resume.getbuffer())
+
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute(
+        "INSERT INTO applications VALUES (NULL, ?, ?, ?, ?, ?)",
+        (job_id, seeker_id, path, "Applied", datetime.now().isoformat())
+    )
+    conn.commit()
+    conn.close()
+
+# ================== INIT ==================
+if "db_init" not in st.session_state:
+    init_db()
+    st.session_state.db_init = True
+
+if "user" not in st.session_state:
+    st.session_state.user = None
+
+st.set_page_config("Hire Hunt", layout="centered")
+
+# ================== CSS INJECTION ==================
+st.markdown("""
+<style>
+""" + """
+/* ==== YOUR FULL CSS (UNCHANGED) ==== */
+""" + """
+[data-testid="stAppViewContainer"] {
+    background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 50%, #16213e 100%);
+    color: #e2e8f0;
+}
+[data-testid="stSidebar"] {
+    background: linear-gradient(180deg, #1e1b4b 0%, #2d1b69 100%);
+    color: white;
+}
+.job-card {
+    background: rgba(255,255,255,0.1);
+    backdrop-filter: blur(20px);
+    border-radius: 20px;
+    padding: 25px;
+    margin-bottom: 20px;
+    border: 1px solid rgba(255,255,255,0.2);
+}
+.job-card:hover {
+    transform: translateY(-6px);
+}
+</style>
+""", unsafe_allow_html=True)
+
+# ================== HERO HTML ==================
+st.markdown("""
+<div style="background: linear-gradient(90deg, #4f46e5, #06b6d4);
+padding: 30px; border-radius: 20px; color: white; text-align: center; margin-bottom:30px;">
+    <h1>Welcome to Hire Hunt</h1>
+    <p>Your gateway to premium job referrals</p>
+</div>
+""", unsafe_allow_html=True)
+
+# ================== SIDEBAR LOGO ==================
+try:
+    st.sidebar.image("logo.png", width=200)
+except:
+    st.sidebar.write("🚀 Hire Hunt Logo")
+
+# ================== MENU ==================
+menu = st.sidebar.selectbox("Menu", ["Login", "Signup"])
+
+# ================== SIGNUP ==================
+if menu == "Signup":
+    st.markdown("<div class='auth-box'>", unsafe_allow_html=True)
+    st.subheader("Create Account")
+    name = st.text_input("Name")
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+    role = st.selectbox("Account Type", ["job_seeker", "employer"])
+
+    if st.button("Signup"):
+        if create_user(name, email, password, role):
+            st.success("Account created successfully 🎉")
+        else:
+            st.error("Email already exists")
+    st.markdown("</div>", unsafe_allow_html=True)
+
+# ================== LOGIN ==================
+if menu == "Login":
+    st.subheader("Login")
+    email = st.text_input("Email")
+    password = st.text_input("Password", type="password")
+
+    if st.button("Login"):
+        user = login_user(email, password)
+        if user:
+            st.session_state.user = user
+            st.success(f"Welcome {user[1]}")
+        else:
+            st.error("Invalid credentials")
+
+# ================== DASHBOARD ==================
+if st.session_state.user:
+    user = st.session_state.user
+
+    # ===== EMPLOYER =====
+    if user[4] == "employer":
+        st.subheader("Post Job")
+        company = st.text_input("Company")
+        title = st.text_input("Job Title")
+        tags = st.text_input("Skills (comma separated)")
+        desc = st.text_area("Description")
+        loc = st.text_input("Location")
+        salary = st.text_input("Salary")
+
+        if st.button("Post Job"):
+            add_job(user[0], company, title, desc, loc, salary, tags)
+            st.success("Job Posted Successfully")
+
+    # ===== JOB SEEKER =====
+    if user[4] == "job_seeker":
+        st.subheader("Available Jobs")
+
+        for j in get_jobs():
+            st.markdown(f"""
+            <div class="job-card">
+                <h3 style="color:#4f46e5;">{j[3]}</h3>
+                <p><b>🏢 {j[2]}</b></p>
+                <p>Skills: {j[7]}</p>
+                <hr>
+                <small>📍 {j[5]} | 💰 {j[6]}</small>
+            </div>
+            """, unsafe_allow_html=True)
+
+            resume = st.file_uploader("Upload Resume (PDF)", type=["pdf"], key=j[0])
+            if resume and st.button("Apply", key=f"apply{j[0]}"):
+                apply_job(j[0], user[0], resume)
+                st.success("Applied Successfully")
+
+    if st.button("Logout"):
+        st.session_state.user = None
+        st.experimental_rerun()
