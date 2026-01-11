@@ -156,6 +156,49 @@ def save_company_profile(recruiter_id, company_name, industry, website, descript
     finally:
         conn.close()
 
+# ------------------ JOB POSTING FUNCTIONS ------------------
+def create_job_posting(company_id, title, description, requirements, location, salary_range, job_type):
+    conn = get_connection()
+    c = conn.cursor()
+    try:
+        c.execute("""
+            INSERT INTO job_postings (company_id, title, description, requirements, location, salary_range, job_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (company_id, title, description, requirements, location, salary_range, job_type))
+        conn.commit()
+        return True
+    except Exception as e:
+        print(f"Error creating job posting: {e}")
+        return False
+    finally:
+        conn.close()
+
+def get_job_postings_by_company(company_id):
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT jp.*, c.company_name FROM job_postings jp
+        JOIN companies c ON jp.company_id = c.id
+        WHERE jp.company_id = ?
+        ORDER BY jp.created_at DESC
+    """, (company_id,))
+    postings = c.fetchall()
+    conn.close()
+    return postings
+
+def get_all_active_job_postings():
+    conn = get_connection()
+    c = conn.cursor()
+    c.execute("""
+        SELECT jp.*, c.company_name, c.location as company_location FROM job_postings jp
+        JOIN companies c ON jp.company_id = c.id
+        WHERE jp.status = 'active'
+        ORDER BY jp.created_at DESC
+    """)
+    postings = c.fetchall()
+    conn.close()
+    return postings
+
 # ------------------ INIT DB (RUN ONCE) ------------------
 if "db_initialized" not in st.session_state:
     init_db()
@@ -461,6 +504,145 @@ elif menu == "🏢 Company Profile" and st.session_state.logged_in:
                     if st.form_submit_button("❌ Cancel", use_container_width=True):
                         st.session_state.edit_company = False
                         st.rerun()
+
+# ------------------ JOB POSTINGS (RECRUITER) ------------------
+elif menu == "📋 Job Postings" and st.session_state.logged_in:
+    user = st.session_state.user
+    if user[4] != 'recruiter':
+        st.error("❌ Access denied. This section is for recruiters only.")
+    else:
+        st.subheader("📋 Job Postings Management")
+
+        # Check if company profile exists
+        company = get_company_by_recruiter(user[0])
+        if not company:
+            st.warning("⚠️ Please set up your company profile first before posting jobs.")
+            if st.button("🏢 Go to Company Profile"):
+                st.session_state.menu_selection = "🏢 Company Profile"
+                st.rerun()
+        else:
+            # Tabs for different actions
+            tab1, tab2 = st.tabs(["📝 Post New Job", "📋 My Job Postings"])
+
+            with tab1:
+                st.subheader("📝 Create New Job Posting")
+
+                with st.form("job_posting_form"):
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        title = st.text_input("📋 Job Title", placeholder="e.g., Senior Python Developer")
+                        location = st.text_input("📍 Location", placeholder="e.g., New York, NY or Remote")
+                        salary_range = st.text_input("💰 Salary Range", placeholder="e.g., $80,000 - $120,000")
+
+                    with col2:
+                        job_type = st.selectbox("⏰ Job Type", ["Full-time", "Part-time", "Contract", "Internship", "Freelance"])
+
+                    description = st.text_area("📝 Job Description", height=100,
+                        placeholder="Describe the role, responsibilities, and what you're looking for...")
+                    requirements = st.text_area("✅ Requirements", height=80,
+                        placeholder="Required skills, experience, qualifications...")
+
+                    if st.form_submit_button("🚀 Post Job", use_container_width=True):
+                        if not title or not description:
+                            st.error("❌ Job title and description are required!")
+                        else:
+                            if create_job_posting(company[0], title, description, requirements, location, salary_range, job_type):
+                                st.success("✅ Job posted successfully!")
+                                st.balloons()
+                                time.sleep(1)
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to post job. Please try again.")
+
+            with tab2:
+                st.subheader("📋 My Job Postings")
+
+                postings = get_job_postings_by_company(company[0])
+
+                if not postings:
+                    st.info("📭 You haven't posted any jobs yet. Create your first job posting!")
+                else:
+                    for posting in postings:
+                        with st.expander(f"📋 {posting[2]} - {posting[8]}"):
+                            col1, col2 = st.columns([2, 1])
+                            with col1:
+                                st.write(f"**Company:** {posting[10]}")
+                                st.write(f"**Location:** {posting[5] or 'Not specified'}")
+                                st.write(f"**Salary:** {posting[6] or 'Not specified'}")
+                                st.write(f"**Type:** {posting[7]}")
+                                st.write(f"**Posted:** {posting[9][:10]}")
+
+                            with col2:
+                                status_color = "🟢" if posting[8] == "active" else "🔴"
+                                st.write(f"**Status:** {status_color} {posting[8].title()}")
+
+                            if posting[3]:  # description
+                                st.write("**Description:**")
+                                st.write(posting[3])
+
+                            if posting[4]:  # requirements
+                                st.write("**Requirements:**")
+                                st.write(posting[4])
+
+# ------------------ BROWSE JOBS (JOB SEEKER) ------------------
+elif menu == "🔍 Browse Jobs" and st.session_state.logged_in:
+    user = st.session_state.user
+    if user[4] != 'job_seeker':
+        st.error("❌ This section is for job seekers only.")
+    else:
+        st.subheader("🔍 Browse Available Jobs")
+
+        # Get all active job postings
+        jobs = get_all_active_job_postings()
+
+        if not jobs:
+            st.info("📭 No job postings available at the moment. Check back later!")
+        else:
+            st.success(f"🎯 Found {len(jobs)} job opportunities!")
+
+            # Filters
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                location_filter = st.text_input("📍 Filter by location", placeholder="City, State or 'Remote'")
+            with col2:
+                job_type_filter = st.selectbox("⏰ Job Type", ["All", "Full-time", "Part-time", "Contract", "Internship", "Freelance"])
+            with col3:
+                company_filter = st.text_input("🏢 Filter by company", placeholder="Company name")
+
+            # Apply filters
+            filtered_jobs = jobs
+            if location_filter:
+                filtered_jobs = [job for job in filtered_jobs if location_filter.lower() in (job[5] or '').lower() or location_filter.lower() in (job[11] or '').lower()]
+            if job_type_filter != "All":
+                filtered_jobs = [job for job in filtered_jobs if job[7] == job_type_filter]
+            if company_filter:
+                filtered_jobs = [job for job in filtered_jobs if company_filter.lower() in job[10].lower()]
+
+            st.write(f"📊 Showing {len(filtered_jobs)} jobs")
+
+            # Display jobs
+            for job in filtered_jobs:
+                with st.expander(f"🏢 {job[10]} - {job[2]}"):
+                    col1, col2 = st.columns([2, 1])
+                    with col1:
+                        st.write(f"**📍 Location:** {job[5] or 'Not specified'}")
+                        st.write(f"**💰 Salary:** {job[6] or 'Not specified'}")
+                        st.write(f"**⏰ Type:** {job[7]}")
+                        st.write(f"**📅 Posted:** {job[9][:10]}")
+
+                    with col2:
+                        if st.button(f"📝 Apply Now", key=f"apply_{job[0]}"):
+                            st.session_state.apply_job_id = job[0]
+                            st.session_state.apply_job_title = job[2]
+                            st.session_state.apply_company = job[10]
+
+                    if job[3]:  # description
+                        st.write("**📝 Description:**")
+                        st.write(job[3])
+
+                    if job[4]:  # requirements
+                        st.write("**✅ Requirements:**")
+                        st.write(job[4])
 
 # ------------------ PROFILE ------------------
 elif menu == "👤 Profile" and st.session_state.logged_in:
