@@ -213,23 +213,14 @@ st.set_page_config(
 )
 
 # Custom CSS
-st.markdown("""
+css = """
 <style>
     .main-header {
         font-size: 2.5em;
         font-weight: bold;
-        background: linear-gradient(45deg, #1e3a8a, #3b82f6);
-        -webkit-background-clip: text;
-        -webkit-text-fill-color: transparent;
+        color: #1e3a8a;
         text-align: center;
         margin-bottom: 1em;
-    }
-    .card {
-        background: white;
-        padding: 2em;
-        border-radius: 10px;
-        box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-        margin: 1em 0;
     }
     .metric-card {
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -240,7 +231,8 @@ st.markdown("""
         margin: 0.5em;
     }
 </style>
-""", unsafe_allow_html=True)
+"""
+st.markdown(css, unsafe_allow_html=True)
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
