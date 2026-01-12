@@ -51,7 +51,7 @@ def init_db():
             FOREIGN KEY (company_id) REFERENCES companies (id)
         )
     """)
-    c.execute(
+    c.execute("""
         CREATE TABLE IF NOT EXISTS job_applications (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
@@ -321,41 +321,23 @@ elif menu == "🏠 Dashboard" and st.session_state.logged_in:
     
     col1, col2, col3 = st.columns(3)
     with col1:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>{total_apps}</h3>
-            <p>Total Applications</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("Total Applications", total_apps)
     
     with col2:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>{pending_apps}</h3>
-            <p>Pending Review</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("Pending Review", pending_apps)
     
     with col3:
-        st.markdown(f"""
-        <div class="metric-card">
-            <h3>{total_apps - pending_apps}</h3>
-            <p>With Updates</p>
-        </div>
-        """, unsafe_allow_html=True)
+        st.metric("With Updates", total_apps - pending_apps)
     
     # Recent Applications
     st.subheader("📋 Recent Applications")
     if applications:
         for app in applications[:5]:  # Show last 5
             with st.container():
-                st.markdown(f"""
-                <div style="background: #f8f9fa; padding: 1em; border-radius: 8px; margin: 0.5em 0; border-left: 4px solid #007bff;">
-                    <h4>{app[3]} at {app[2]}</h4>
-                    <p><strong>Status:</strong> {app[4]} | <strong>Applied:</strong> {app[5]}</p>
-                    {f'<p><strong>Notes:</strong> {app[6]}</p>' if app[6] else ''}
-                </div>
-                """, unsafe_allow_html=True)
+                st.write(f"**{app[3]}** at {app[2]}")
+                st.write(f"Status: {app[4]} | Applied: {app[5]}")
+                if app[6]:
+                    st.write(f"Notes: {app[6]}")
     else:
         st.info("📭 No applications yet. Add your first job application!")
 
