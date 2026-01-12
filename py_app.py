@@ -212,27 +212,8 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom CSS
-css = """
-<style>
-    .main-header {
-        font-size: 2.5em;
-        font-weight: bold;
-        color: #1e3a8a;
-        text-align: center;
-        margin-bottom: 1em;
-    }
-    .metric-card {
-        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-        color: white;
-        padding: 1.5em;
-        border-radius: 10px;
-        text-align: center;
-        margin: 0.5em;
-    }
-</style>
-"""
-st.markdown(css, unsafe_allow_html=True)
+# Custom CSS removed temporarily to fix syntax error
+# Will add back after deployment works
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
